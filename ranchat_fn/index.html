@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5"
+    />
+    <title>RanChat</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233b82f6'/%3E%3C/svg%3E"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      :root {
+        color-scheme: light dark;
+        --bg: #0f1419;
+        --surface: #1a2332;
+        --border: rgba(255, 255, 255, 0.08);
+        --text: #e7ecf3;
+        --muted: #8b98a8;
+        --accent: #3b82f6;
+        --accent-dim: rgba(59, 130, 246, 0.2);
+        --mine: #34d399;
+        --them: #f1f5f9;
+        --warn: #fb7185;
+        --system: #38bdf8;
+        --pad: 16px;
+        --touch-min: 46px;
+        --radius: 12px;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6f9;
+          --surface: #ffffff;
+          --border: rgba(15, 20, 25, 0.1);
+          --text: #0f1419;
+          --muted: #5c6b7a;
+          --them: #1e293b;
+        }
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        height: 100dvh;
+        max-height: 100dvh;
+        overflow: hidden;
+        overscroll-behavior: none;
+        background: var(--bg);
+        color: var(--text);
+        display: flex;
+        flex-direction: column;
+        max-width: 640px;
+        margin-inline: auto;
+        padding: var(--pad);
+        padding-top: max(var(--pad), env(safe-area-inset-top, 0px));
+        padding-bottom: max(var(--pad), env(safe-area-inset-bottom, 0px));
+        padding-left: max(var(--pad), env(safe-area-inset-left, 0px));
+        padding-right: max(var(--pad), env(safe-area-inset-right, 0px));
+      }
+      .app {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        gap: 10px;
+        overflow: hidden;
+      }
+      .top-bar {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .brand {
+        font-size: 1.35rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin: 0;
+      }
+      .status-pill {
+        font-size: 0.8rem;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .status-pill.is-live {
+        color: var(--accent);
+        border-color: var(--accent-dim);
+        background: var(--accent-dim);
+      }
+      .btn-next {
+        flex-shrink: 0;
+        width: 100%;
+        min-height: var(--touch-min);
+        padding: 0 16px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .btn-next:active {
+        opacity: 0.9;
+      }
+      #log {
+        flex: 1 1 0%;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        padding: 14px;
+      }
+      #log:empty::before {
+        content: "매칭되면 여기에 대화가 표시됩니다.";
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .msg {
+        margin-bottom: 12px;
+        line-height: 1.45;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+      }
+      .msg:last-child {
+        margin-bottom: 0;
+      }
+      .mine {
+        color: var(--mine);
+      }
+      .system {
+        color: var(--system);
+        font-size: 0.88rem;
+      }
+      .warn {
+        color: var(--warn);
+        font-size: 0.88rem;
+      }
+      #log img.chat-media-thumb {
+        cursor: zoom-in;
+        display: block;
+        margin-top: 6px;
+        max-width: min(100%, 280px);
+        border-radius: 8px;
+      }
+      #log .chat-video-wrap video {
+        display: block;
+        margin-top: 6px;
+        width: 100%;
+        max-width: min(100%, 280px);
+        border-radius: 8px;
+      }
+      #log .media-expand-btn {
+        margin-top: 8px;
+        padding: 8px 12px;
+        font-size: 0.85rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        cursor: pointer;
+        min-height: 40px;
+      }
+      .composer {
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .composer textarea {
+        width: 100%;
+        min-height: 64px;
+        max-height: 140px;
+        padding: 10px 12px;
+        font-size: 16px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        resize: none;
+        line-height: 1.4;
+        field-sizing: content;
+      }
+      .composer textarea::placeholder {
+        color: var(--muted);
+      }
+      .file-hint {
+        margin: 0;
+        font-size: 0.82rem;
+        color: var(--muted);
+        min-height: 1.25em;
+      }
+      .file-hint:empty {
+        display: none;
+      }
+      .composer-actions {
+        display: flex;
+        gap: 10px;
+        align-items: stretch;
+      }
+      .btn-send {
+        flex: 1;
+        min-height: var(--touch-min);
+        border: none;
+        border-radius: var(--radius);
+        background: var(--accent);
+        color: #fff;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .btn-send:active {
+        filter: brightness(0.95);
+      }
+      .btn-file {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--touch-min);
+        padding: 0 16px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-size: 0.92rem;
+        font-weight: 600;
+        cursor: pointer;
+        touch-action: manipulation;
+        flex-shrink: 0;
+      }
+      .btn-file input {
+        position: absolute;
+        width: 0.01px;
+        height: 0.01px;
+        opacity: 0;
+        overflow: hidden;
+      }
+      #lightbox {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+          max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+        background: rgba(0, 0, 0, 0.85);
+      }
+      #lightbox.is-open {
+        display: flex;
+        touch-action: none;
+        overscroll-behavior: contain;
+      }
+      #lightbox-inner {
+        position: relative;
+        max-width: min(96vw, 1200px);
+        max-height: min(88dvh, 92vh);
+        width: 100%;
+        margin-top: 36px;
+      }
+      #lightbox-inner img,
+      #lightbox-inner video {
+        max-width: 100%;
+        max-height: 88vh;
+        border-radius: 10px;
+        display: block;
+        margin: 0 auto;
+      }
+      #lightbox.is-open #lightbox-close {
+        position: fixed;
+        top: max(10px, env(safe-area-inset-top, 0px));
+        right: max(10px, env(safe-area-inset-right, 0px));
+        z-index: 10001;
+        min-height: var(--touch-min);
+        padding: 0 16px;
+        font-size: 0.95rem;
+        cursor: pointer;
+        border: none;
+        border-radius: 10px;
+        background: #fff;
+        color: #111;
+        font-weight: 600;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+      }
+      @supports not (field-sizing: content) {
+        .composer textarea {
+          min-height: 72px;
+        }
+      }
+      .upload-spinner {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: upload-spin 0.7s linear infinite;
+      }
+      @keyframes upload-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .upload-bar {
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: max(12px, env(safe-area-inset-bottom, 0px));
+        transform: translateX(-50%);
+        width: min(calc(100vw - 24px), 640px);
+        z-index: 8000;
+        padding: 10px 14px;
+        border-radius: 12px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.38);
+        pointer-events: none;
+      }
+      .upload-bar.is-visible {
+        display: block;
+      }
+      .upload-bar-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .upload-bar-text {
+        font-size: 0.88rem;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .upload-bar-hint {
+        margin: 6px 0 0 28px;
+        font-size: 0.75rem;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      .upload-bar-track {
+        height: 3px;
+        margin-top: 10px;
+        border-radius: 2px;
+        background: var(--border);
+        overflow: hidden;
+      }
+      .upload-bar-fill {
+        height: 100%;
+        width: 35%;
+        border-radius: 2px;
+        background: linear-gradient(90deg, var(--accent), #60a5fa);
+        animation: upload-indeterminate 1.1s ease-in-out infinite;
+      }
+      @keyframes upload-indeterminate {
+        0% {
+          transform: translateX(-120%);
+        }
+        100% {
+          transform: translateX(320%);
+        }
+      }
+      body.is-uploading-media .btn-file {
+        pointer-events: none;
+        opacity: 0.55;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <div class="top-bar">
+        <h1 class="brand">RanChat</h1>
+        <span id="statusPill" class="status-pill">연결 중…</span>
+      </div>
+
+      <button type="button" id="nextBtn" class="btn-next">다른 사람과 연결</button>
+
+      <div id="log" role="log" aria-live="polite" aria-relevant="additions"></div>
+
+      <div class="composer">
+        <textarea id="messageInput" placeholder="메시지 입력" rows="3"></textarea>
+        <p id="fileHint" class="file-hint" aria-live="polite"></p>
+        <div class="composer-actions">
+          <label class="btn-file" id="fileLabel" for="fileInput">
+            사진·영상
+            <input id="fileInput" type="file" accept="image/*,video/*,.mp4" />
+          </label>
+          <button type="button" id="sendBtn" class="btn-send">보내기</button>
+        </div>
+      </div>
+    </main>
+
+    <div id="uploadBar" class="upload-bar" role="status" aria-live="polite" aria-busy="false">
+      <div class="upload-bar-row">
+        <div class="upload-spinner" aria-hidden="true"></div>
+        <span id="uploadBarText" class="upload-bar-text">전송 중…</span>
+      </div>
+      <p class="upload-bar-hint">채팅은 그대로 입력·전송할 수 있어요.</p>
+      <div class="upload-bar-track" aria-hidden="true">
+        <div class="upload-bar-fill"></div>
+      </div>
+    </div>
+
+    <div id="lightbox" role="dialog" aria-modal="true" aria-label="미디어 크게 보기">
+      <div id="lightbox-inner">
+        <button type="button" id="lightbox-close" aria-label="닫기">닫기</button>
+        <div id="lightbox-content"></div>
+      </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script>
+      const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+      const MAX_VIDEO_BYTES = 10 * 1024 * 1024;
+      const UUID_KEY = "ranchat_uuid";
+      const API_BASE = "http://localhost:3000";
+
+      let socket = null;
+      let currentRoomId = null;
+      let partnerUuid = null;
+      let cloudName = "";
+      let uploadPreset = "";
+      /** 소켓 연결 후 매칭 버튼으로만 true (재연결 시 다시 false) */
+      let hasRegistered = false;
+      let pendingFile = null;
+      let mediaUploadInProgress = false;
+
+      const nextBtn = document.getElementById("nextBtn");
+      const sendBtn = document.getElementById("sendBtn");
+      const messageInput = document.getElementById("messageInput");
+      const fileInput = document.getElementById("fileInput");
+      const logEl = document.getElementById("log");
+      const lightboxEl = document.getElementById("lightbox");
+      const lightboxContentEl = document.getElementById("lightbox-content");
+      const lightboxCloseEl = document.getElementById("lightbox-close");
+      const statusPillEl = document.getElementById("statusPill");
+      const fileHintEl = document.getElementById("fileHint");
+      const uploadBarEl = document.getElementById("uploadBar");
+      const uploadBarTextEl = document.getElementById("uploadBarText");
+
+      const myUuid = getOrCreateUuid();
+
+      function setUploadBar(on, label = "전송 중…") {
+        uploadBarEl.classList.toggle("is-visible", on);
+        uploadBarEl.setAttribute("aria-busy", on ? "true" : "false");
+        document.body.classList.toggle("is-uploading-media", on);
+        fileInput.disabled = on;
+        if (on) uploadBarTextEl.textContent = label;
+      }
+
+      /** 용량 줄여 업로드 시간 단축 (큰 사진 위주) */
+      async function compressImageForUpload(file) {
+        if (!file.type.startsWith("image/")) return file;
+        if (file.size < 400 * 1024) return file;
+        try {
+          const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+          const maxEdge = 1920;
+          const w = bmp.width;
+          const h = bmp.height;
+          const scale = Math.min(maxEdge / w, maxEdge / h, 1);
+          const nw = Math.max(1, Math.round(w * scale));
+          const nh = Math.max(1, Math.round(h * scale));
+          if (nw === w && nh === h && file.size < 900 * 1024) {
+            bmp.close();
+            return file;
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = nw;
+          canvas.height = nh;
+          const ctx = canvas.getContext("2d", { alpha: false });
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          // JPEG은 투명 없음 → 투명/가장자리가 검은 띠로 보이는 현상 방지
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, nw, nh);
+          ctx.drawImage(bmp, 0, 0, nw, nh);
+          bmp.close();
+          const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+          if (!blob || blob.size >= file.size * 0.92) return file;
+          const base = file.name.replace(/\.[^.]+$/, "") || "photo";
+          return new File([blob], `${base}.jpg`, { type: "image/jpeg" });
+        } catch {
+          return file;
+        }
+      }
+
+      function updateFileHint() {
+        if (!pendingFile) {
+          fileHintEl.textContent = "";
+          return;
+        }
+        fileHintEl.textContent = `선택: ${pendingFile.name} — 보내기로 전송`;
+      }
+
+      function getOrCreateUuid() {
+        const existing = localStorage.getItem(UUID_KEY);
+        if (existing) return existing;
+        const created = crypto.randomUUID();
+        localStorage.setItem(UUID_KEY, created);
+        return created;
+      }
+
+      function setStatus(text, live = false) {
+        statusPillEl.textContent = text;
+        statusPillEl.classList.toggle("is-live", live);
+      }
+
+      function setRoom(roomId) {
+        currentRoomId = roomId || null;
+      }
+
+      function clearLog() {
+        logEl.innerHTML = "";
+      }
+
+      function log(message, type = "normal") {
+        const div = document.createElement("div");
+        div.className = `msg ${type}`;
+        div.innerHTML = message;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function escapeHtml(text) {
+        return text
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function escapeAttr(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }
+
+      /** Cloudinary 배포 URL에 f_auto,q_auto (포맷·품질 자동, 이미 있으면 유지) */
+      function cloudinaryDeliveryUrl(url) {
+        if (!url || typeof url !== "string") return url;
+        if (!url.includes("res.cloudinary.com")) return url;
+        try {
+          const u = new URL(url);
+          let path = u.pathname;
+          if (/\/(image|video)\/upload\/f_auto/.test(path)) return url;
+          const next = path.replace(/\/(image|video)\/upload\//, "/$1/upload/f_auto,q_auto/");
+          if (next === path) return url;
+          u.pathname = next;
+          return u.toString();
+        } catch {
+          return url;
+        }
+      }
+
+      function openLightbox(type, url) {
+        if (!url) return;
+        const src = cloudinaryDeliveryUrl(url);
+        lightboxContentEl.innerHTML = "";
+        if (type === "image") {
+          const img = document.createElement("img");
+          img.src = src;
+          img.alt = "";
+          lightboxContentEl.appendChild(img);
+        } else {
+          const video = document.createElement("video");
+          video.src = src;
+          video.controls = true;
+          video.playsInline = true;
+          lightboxContentEl.appendChild(video);
+        }
+        lightboxEl.classList.add("is-open");
+        document.body.style.overflow = "hidden";
+      }
+
+      function closeLightbox() {
+        lightboxEl.classList.remove("is-open");
+        lightboxContentEl.innerHTML = "";
+        document.body.style.overflow = "";
+      }
+
+      logEl.addEventListener("click", (event) => {
+        const img = event.target.closest("img.chat-media-thumb");
+        if (img && logEl.contains(img)) {
+          event.preventDefault();
+          openLightbox("image", img.src);
+          return;
+        }
+        const expandBtn = event.target.closest(".media-expand-btn");
+        if (expandBtn && logEl.contains(expandBtn)) {
+          event.preventDefault();
+          const kind = expandBtn.getAttribute("data-kind") || "video";
+          const url = expandBtn.getAttribute("data-url");
+          openLightbox(kind === "image" ? "image" : "video", url);
+        }
+      });
+
+      lightboxCloseEl.addEventListener("click", closeLightbox);
+      lightboxEl.addEventListener("click", (event) => {
+        if (event.target === lightboxEl) closeLightbox();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && lightboxEl.classList.contains("is-open")) {
+          closeLightbox();
+        }
+      });
+
+      function getBackendBase() {
+        return String(API_BASE).trim().replace(/\/+$/, "");
+      }
+
+      async function loadServerConfig() {
+        try {
+          const res = await fetch(`${getBackendBase()}/api/config`);
+          if (!res.ok) throw new Error("config");
+          const json = await res.json();
+          cloudName = json.cloudName || "";
+          uploadPreset = json.uploadPreset || "";
+        } catch {
+          log("서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.", "warn");
+        }
+      }
+
+      function bindSocketEvents() {
+        ["connect", "queued", "matched", "room_message", "partner_left", "chat_ended", "error_message", "disconnect"].forEach(
+          (ev) => socket.off(ev)
+        );
+
+        socket.on("connect", () => {
+          hasRegistered = false;
+          setStatus("준비됨", false);
+        });
+
+        socket.on("queued", () => {
+          setStatus("매칭 중…", false);
+        });
+
+        socket.on("matched", (payload) => {
+          clearLog();
+          setRoom(payload.roomId);
+          partnerUuid = payload.partnerUuid;
+          setStatus("대화 중", true);
+        });
+
+        socket.on("room_message", (payload) => {
+          const mine = payload.senderUuid === myUuid;
+          const owner = mine ? "나" : "상대";
+          const base = `<b>${owner}</b> ${escapeHtml(payload.text || "")}`;
+
+          if (payload.type === "image" && payload.mediaUrl) {
+            const src = escapeAttr(cloudinaryDeliveryUrl(payload.mediaUrl));
+            log(
+              `${base}<br /><img class="chat-media-thumb" src="${src}" alt="" loading="lazy" />`,
+              mine ? "mine" : "normal"
+            );
+            return;
+          }
+          if (payload.type === "video" && payload.mediaUrl) {
+            const src = escapeAttr(cloudinaryDeliveryUrl(payload.mediaUrl));
+            log(
+              `${base}<br /><div class="chat-video-wrap"><video controls src="${src}"></video><button type="button" class="media-expand-btn" data-kind="video" data-url="${src}">크게 보기</button></div>`,
+              mine ? "mine" : "normal"
+            );
+            return;
+          }
+          log(base, mine ? "mine" : "normal");
+        });
+
+        socket.on("partner_left", (payload) => {
+          clearLog();
+          setRoom(null);
+          partnerUuid = null;
+          setStatus("매칭 중…", false);
+          log(escapeHtml(payload.reason || "상대가 나갔습니다."), "system");
+        });
+
+        socket.on("chat_ended", () => {
+          clearLog();
+          setRoom(null);
+          partnerUuid = null;
+          setStatus("매칭 중…", false);
+        });
+
+        socket.on("error_message", (payload) => {
+          log(escapeHtml(payload.message || "오류가 발생했습니다."), "warn");
+        });
+
+        socket.on("disconnect", () => {
+          hasRegistered = false;
+          setStatus("연결 끊김", false);
+          setRoom(null);
+          partnerUuid = null;
+          log("연결이 끊어졌습니다. 다시 연결되면 아래에서 매칭을 시작해 주세요.", "warn");
+        });
+      }
+
+      function connectSocket() {
+        if (socket) socket.disconnect();
+        socket = io(getBackendBase(), {
+          transports: ["polling", "websocket"],
+          reconnection: true,
+          reconnectionAttempts: 12,
+          reconnectionDelay: 800,
+          timeout: 20000,
+        });
+        bindSocketEvents();
+      }
+
+      function sendText() {
+        if (!socket || !socket.connected) {
+          log("연결되지 않았습니다.", "warn");
+          return;
+        }
+        if (!hasRegistered) {
+          log("먼저 「다른 사람과 연결」로 매칭을 시작해 주세요.", "warn");
+          return;
+        }
+        if (!currentRoomId) {
+          log("상대와 연결될 때까지 잠시만 기다려 주세요.", "warn");
+          return;
+        }
+        const text = messageInput.value.trim();
+        if (!text) return;
+        socket.emit("chat_message", { type: "text", text });
+        messageInput.value = "";
+      }
+
+      async function sendOrUpload() {
+        if (pendingFile) {
+          if (mediaUploadInProgress) {
+            log("이전 사진·영상 전송이 끝날 때까지 기다려 주세요.", "warn");
+            return;
+          }
+          const file = pendingFile;
+          pendingFile = null;
+          fileInput.value = "";
+          updateFileHint();
+          await uploadAndSend(file);
+          return;
+        }
+        sendText();
+      }
+
+      function validateFile(file) {
+        if (!file) return { ok: false, reason: "파일을 선택해 주세요." };
+
+        const isImage = file.type.startsWith("image/");
+        const isVideo =
+          file.type.startsWith("video/") ||
+          file.type === "application/mp4" ||
+          file.name.toLowerCase().endsWith(".mp4");
+
+        if (!isImage && !isVideo) {
+          return { ok: false, reason: "이미지 또는 영상만 보낼 수 있습니다." };
+        }
+
+        if (isImage && file.size > MAX_IMAGE_BYTES) {
+          return { ok: false, reason: "이미지는 5MB 이하만 가능합니다." };
+        }
+        if (isVideo && file.size > MAX_VIDEO_BYTES) {
+          return { ok: false, reason: "영상은 10MB 이하만 가능합니다." };
+        }
+
+        return { ok: true, kind: isImage ? "image" : "video" };
+      }
+
+      async function uploadToCloudinary(file, kind) {
+        if (!cloudName || !uploadPreset) {
+          throw new Error("업로드 설정이 없습니다.");
+        }
+        const endpoint = `https://api.cloudinary.com/v1_1/${cloudName}/${kind}/upload`;
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("upload_preset", uploadPreset);
+
+        const res = await fetch(endpoint, { method: "POST", body: formData });
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error(errBody || "업로드 실패");
+        }
+        return res.json();
+      }
+
+      async function saveUploadMeta(meta, kind, file) {
+        const res = await fetch(`${getBackendBase()}/api/uploads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            uuid: myUuid,
+            url: meta.secure_url,
+            publicId: meta.public_id,
+            resourceType: kind,
+            bytes: file.size,
+          }),
+        });
+        if (!res.ok) throw new Error("메타 저장 실패");
+      }
+
+      async function uploadAndSend(file) {
+        if (!socket || !socket.connected) {
+          log("연결되지 않았습니다.", "warn");
+          return;
+        }
+        if (!hasRegistered) {
+          log("먼저 「다른 사람과 연결」로 매칭을 시작해 주세요.", "warn");
+          return;
+        }
+        if (!currentRoomId) {
+          log("상대와 연결된 뒤에 보낼 수 있습니다.", "warn");
+          return;
+        }
+
+        const valid = validateFile(file);
+        if (!valid.ok) {
+          log(valid.reason, "warn");
+          return;
+        }
+
+        mediaUploadInProgress = true;
+        let uploadFile = file;
+        if (valid.kind === "image") {
+          setUploadBar(true, "사진 최적화 중…");
+          uploadFile = await compressImageForUpload(file);
+          setUploadBar(true, "사진 업로드 중…");
+        } else {
+          setUploadBar(true, "동영상 업로드 중…");
+        }
+        try {
+          const uploaded = await uploadToCloudinary(uploadFile, valid.kind);
+          await saveUploadMeta(uploaded, valid.kind, uploadFile);
+
+          socket.emit("chat_message", {
+            type: valid.kind,
+            text: valid.kind === "image" ? "사진" : "영상",
+            mediaUrl: uploaded.secure_url,
+            mediaPublicId: uploaded.public_id,
+          });
+        } catch (error) {
+          log(`전송 실패: ${escapeHtml(error.message)}`, "warn");
+        } finally {
+          mediaUploadInProgress = false;
+          setUploadBar(false);
+        }
+      }
+
+      sendBtn.addEventListener("click", () => {
+        sendOrUpload();
+      });
+      nextBtn.addEventListener("click", () => {
+        if (!socket || !socket.connected) {
+          log("서버에 연결되지 않았습니다.", "warn");
+          return;
+        }
+        if (!hasRegistered) {
+          socket.emit("register", { uuid: myUuid });
+          hasRegistered = true;
+          setStatus("매칭 중…", false);
+          return;
+        }
+        socket.emit("find_new_partner");
+      });
+      messageInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          sendOrUpload();
+        }
+      });
+
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files && fileInput.files[0];
+        pendingFile = file || null;
+        updateFileHint();
+      });
+
+      loadServerConfig().then(connectSocket);
+    </script>
+  </body>
+</html>
