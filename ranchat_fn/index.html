@@ -385,9 +385,79 @@
         pointer-events: none;
         opacity: 0.55;
       }
+      .boot-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 8500;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(15, 20, 25, 0.55);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+      }
+      .boot-overlay.is-visible {
+        display: flex;
+      }
+      .boot-card {
+        width: min(92vw, 420px);
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.32);
+        padding: 18px 16px;
+      }
+      .boot-title {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+      }
+      .boot-desc {
+        margin: 8px 0 0;
+        font-size: 0.86rem;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .boot-row {
+        margin-top: 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .boot-retry {
+        margin-top: 12px;
+        min-height: 40px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        padding: 0 14px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: none;
+      }
+      .boot-retry.is-visible {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
     </style>
   </head>
   <body>
+    <div id="bootOverlay" class="boot-overlay is-visible" role="status" aria-live="polite">
+      <div class="boot-card">
+        <p class="boot-title" id="bootTitle">서비스 연결 중입니다</p>
+        <p class="boot-desc" id="bootDesc">처음 접속은 5~15초 걸릴 수 있어요. 잠시만 기다려 주세요.</p>
+        <div class="boot-row">
+          <div class="upload-spinner" aria-hidden="true"></div>
+          <span id="bootStep" class="upload-bar-text">서버 깨우는 중…</span>
+        </div>
+        <button type="button" id="bootRetryBtn" class="boot-retry">다시 시도</button>
+      </div>
+    </div>
+
     <main class="app">
       <div class="top-bar">
         <h1 class="brand">RanChat</h1>
@@ -458,6 +528,11 @@
       const fileHintEl = document.getElementById("fileHint");
       const uploadBarEl = document.getElementById("uploadBar");
       const uploadBarTextEl = document.getElementById("uploadBarText");
+      const bootOverlayEl = document.getElementById("bootOverlay");
+      const bootTitleEl = document.getElementById("bootTitle");
+      const bootDescEl = document.getElementById("bootDesc");
+      const bootStepEl = document.getElementById("bootStep");
+      const bootRetryBtnEl = document.getElementById("bootRetryBtn");
 
       const myUuid = getOrCreateUuid();
 
@@ -467,6 +542,14 @@
         document.body.classList.toggle("is-uploading-media", on);
         fileInput.disabled = on;
         if (on) uploadBarTextEl.textContent = label;
+      }
+
+      function setBootState({ show, title, desc, step, canRetry }) {
+        bootOverlayEl.classList.toggle("is-visible", show);
+        if (title) bootTitleEl.textContent = title;
+        if (desc) bootDescEl.textContent = desc;
+        if (step) bootStepEl.textContent = step;
+        bootRetryBtnEl.classList.toggle("is-visible", Boolean(canRetry));
       }
 
       /** 용량 줄여 업로드 시간 단축 (큰 사진 위주) */
@@ -639,8 +722,10 @@
           const json = await res.json();
           cloudName = json.cloudName || "";
           uploadPreset = json.uploadPreset || "";
+          return true;
         } catch {
           log("서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.", "warn");
+          return false;
         }
       }
 
@@ -652,6 +737,7 @@
         socket.on("connect", () => {
           hasRegistered = false;
           setStatus("준비됨", false);
+          setBootState({ show: false });
         });
 
         socket.on("queued", () => {
@@ -715,6 +801,26 @@
           partnerUuid = null;
           log("연결이 끊어졌습니다. 다시 연결되면 아래에서 매칭을 시작해 주세요.", "warn");
         });
+
+        socket.io.on("reconnect_attempt", () => {
+          setBootState({
+            show: true,
+            title: "다시 연결 중입니다",
+            desc: "네트워크 상태에 따라 몇 초 걸릴 수 있어요.",
+            step: "서버와 다시 연결 중…",
+            canRetry: false,
+          });
+        });
+
+        socket.io.on("reconnect_failed", () => {
+          setBootState({
+            show: true,
+            title: "연결에 실패했습니다",
+            desc: "잠시 후 다시 시도하거나 아래 버튼을 눌러 주세요.",
+            step: "연결 실패",
+            canRetry: true,
+          });
+        });
       }
 
       function connectSocket() {
@@ -727,6 +833,37 @@
           timeout: 20000,
         });
         bindSocketEvents();
+      }
+
+      async function bootApp() {
+        setBootState({
+          show: true,
+          title: "서비스 연결 중입니다",
+          desc: "처음 접속은 5~15초 걸릴 수 있어요. 잠시만 기다려 주세요.",
+          step: "서버 깨우는 중…",
+          canRetry: false,
+        });
+
+        const ok = await loadServerConfig();
+        if (!ok) {
+          setBootState({
+            show: true,
+            title: "서버에 연결할 수 없습니다",
+            desc: "백엔드가 켜져 있는지 확인 후 다시 시도해 주세요.",
+            step: "설정 불러오기 실패",
+            canRetry: true,
+          });
+          return;
+        }
+
+        setBootState({
+          show: true,
+          title: "서비스 연결 중입니다",
+          desc: "곧 채팅을 시작할 수 있어요.",
+          step: "소켓 연결 중…",
+          canRetry: false,
+        });
+        connectSocket();
       }
 
       function sendText() {
@@ -895,7 +1032,11 @@
         updateFileHint();
       });
 
-      loadServerConfig().then(connectSocket);
+      bootRetryBtnEl.addEventListener("click", () => {
+        bootApp();
+      });
+
+      bootApp();
     </script>
   </body>
 </html>
