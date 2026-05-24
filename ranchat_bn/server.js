@@ -137,6 +137,32 @@ function removeFromQueueByUuid(uuid) {
   state.waitingQueue = state.waitingQueue.filter((entry) => entry.uuid !== uuid);
 }
 
+function shortUuid(uuid) {
+  if (!uuid || typeof uuid !== "string") return "?";
+  return uuid.slice(0, 8);
+}
+
+function shortSocketId(socketId) {
+  if (!socketId) return "?";
+  return String(socketId).slice(-6);
+}
+
+function logQueue(label, extra = "") {
+  const items = state.waitingQueue.map(
+    (e, i) => `${i}:${shortUuid(e.uuid)}/${shortSocketId(e.socketId)}`
+  );
+  const suffix = extra ? ` | ${extra}` : "";
+  // console.log(`[ranchat:queue] ${label} len=${state.waitingQueue.length} [${items.join(", ")}]${suffix}`);
+}
+
+function logRooms(label) {
+  const rooms = [...state.rooms.entries()].map(([roomId, room]) => {
+    const users = room.users.map((u) => `${shortUuid(u.uuid)}/${shortSocketId(u.socketId)}`).join("+");
+    return `${roomId.slice(0, 8)}(${users})`;
+  });
+  // console.log(`[ranchat:room] ${label} count=${state.rooms.size} [${rooms.join(", ")}]`);
+}
+
 async function recordDau(uuid) {
   const day = utcDateKey();
   if (!uuid) return;
@@ -219,6 +245,11 @@ async function endChatForSocket(socket, reason = "상대방이 채팅을 종료�
   const me = room.users.find((u) => u.socketId === socket.id);
   const partner = getPartnerSocket(room, socket.id);
 
+  // console.log(
+  //   `[ranchat:endChat] initiator=${shortUuid(me?.uuid)}/${shortSocketId(socket.id)} partner=${shortUuid(partner?.uuid)}/${shortSocketId(partner?.socketId)} reason=${reason}`
+  // );
+  logQueue("endChat before");
+
   state.socketRoom.delete(socket.id);
   if (partner) {
     state.socketRoom.delete(partner.socketId);
@@ -242,13 +273,21 @@ async function endChatForSocket(socket, reason = "상대방이 채팅을 종료�
 
   if (me?.uuid) enqueueForMatch(socket, me.uuid);
   await markRoomEnded(roomId);
+  logQueue("endChat after enqueue");
+  logRooms("endChat after");
   tryMatchUsers();
 }
 
 function enqueueForMatch(socket, uuid) {
   if (!socket || !uuid) return;
-  if (state.socketRoom.has(socket.id)) return;
+  if (state.socketRoom.has(socket.id)) {
+    // console.log(
+    //   `[ranchat:enqueue] SKIP in-room uuid=${shortUuid(uuid)} socket=${shortSocketId(socket.id)}`
+    // );
+    return;
+  }
   if (queueContainsUuid(uuid)) {
+    // console.log(`[ranchat:enqueue] SKIP duplicate uuid=${shortUuid(uuid)} already in queue`);
     socket.emit("queued", { queued: true, reason: "같은 UUID는 이미 대기열에 있습니다." });
     return;
   }
@@ -256,6 +295,7 @@ function enqueueForMatch(socket, uuid) {
   removeFromQueueBySocketId(socket.id);
   state.waitingQueue.push({ socketId: socket.id, uuid, queuedAt: Date.now() });
   socket.emit("queued", { queued: true, size: state.waitingQueue.length });
+  logQueue(`enqueue +${shortUuid(uuid)}/${shortSocketId(socket.id)}`);
 }
 
 async function createRoom(userA, userB) {
@@ -281,11 +321,21 @@ async function createRoom(userA, userB) {
   socketA.emit("matched", { roomId, partnerUuid: userB.uuid });
   socketB.emit("matched", { roomId, partnerUuid: userA.uuid });
 
+  // console.log(
+  //   `[ranchat:matched] ${shortUuid(userA.uuid)}/${shortSocketId(userA.socketId)} ↔ ${shortUuid(userB.uuid)}/${shortSocketId(userB.socketId)} room=${roomId.slice(0, 8)}`
+  // );
+  logRooms("after matched");
+
   await saveRoom(room);
 }
 
 async function tryMatchUsers() {
-  if (state.waitingQueue.length < 2) return;
+  if (state.waitingQueue.length < 2) {
+    logQueue("tryMatch skip (<2)");
+    return;
+  }
+
+  logQueue("tryMatch start");
 
   let matched = true;
   while (matched && state.waitingQueue.length > 1) {
@@ -295,6 +345,7 @@ async function tryMatchUsers() {
       const a = state.waitingQueue[i];
       const socketA = io.sockets.sockets.get(a.socketId);
       if (!socketA) {
+        // console.log(`[ranchat:tryMatch] drop stale socket=${shortSocketId(a.socketId)} uuid=${shortUuid(a.uuid)}`);
         state.waitingQueue.splice(i, 1);
         i -= 1;
         continue;
@@ -316,6 +367,8 @@ async function tryMatchUsers() {
       if (matched) break;
     }
   }
+
+  logQueue("tryMatch end");
 }
 
 async function deleteCloudinaryAsset(publicId, resourceType) {
@@ -327,13 +380,13 @@ async function deleteCloudinaryAsset(publicId, resourceType) {
     });
     return result;
   } catch (error) {
-    console.error("Cloudinary delete failed:", publicId, error.message);
+    // console.error("Cloudinary delete failed:", publicId, error.message);
     return { error: error.message };
   }
 }
 
 async function cleanupExpiredMedia() {
-  console.log(`[cleanup] started at ${nowIso()}`);
+  // console.log(`[cleanup] started at ${nowIso()}`);
 
   const threshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
   if (!hasDb) {
@@ -342,7 +395,7 @@ async function cleanupExpiredMedia() {
       await deleteCloudinaryAsset(item.public_id, item.resource_type);
     }
     state.memory.uploads = state.memory.uploads.filter((u) => new Date(u.created_at) >= threshold);
-    console.log(`[cleanup] memory uploads removed: ${expired.length}`);
+    // console.log(`[cleanup] memory uploads removed: ${expired.length}`);
     return;
   }
 
@@ -362,7 +415,7 @@ async function cleanupExpiredMedia() {
   if (ids.length > 0) {
     await pool.query(`DELETE FROM uploaded_media WHERE id = ANY($1::uuid[])`, [ids]);
   }
-  console.log(`[cleanup] db uploads removed: ${ids.length}`);
+  // console.log(`[cleanup] db uploads removed: ${ids.length}`);
 }
 
 app.get("/health", (req, res) => {
@@ -374,7 +427,7 @@ app.get("/api/config", (req, res) => {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
     uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || "",
     maxImageBytes: 5 * 1024 * 1024,
-    maxVideoBytes: 10 * 1024 * 1024,
+    // maxVideoBytes: 10 * 1024 * 1024, // MVP: 동영상 비활성
   });
 });
 
@@ -385,15 +438,16 @@ app.post("/api/uploads", async (req, res) => {
       return res.status(400).json({ error: "uuid, url, publicId는 필수입니다." });
     }
 
-    const allowedResource = resourceType === "image" || resourceType === "video";
+    const allowedResource = resourceType === "image";
+    // || resourceType === "video"; // MVP: 동영상 비활성
     if (!allowedResource) {
-      return res.status(400).json({ error: "resourceType은 image 또는 video만 허용됩니다." });
+      return res.status(400).json({ error: "resourceType은 image만 허용됩니다." });
     }
 
     await saveUpload({ uuid, url, publicId, resourceType, bytes });
     return res.json({ ok: true });
   } catch (error) {
-    console.error("upload save error:", error);
+    // console.error("upload save error:", error);
     return res.status(500).json({ error: "업로드 메타데이터 저장 실패" });
   }
 });
@@ -418,14 +472,16 @@ app.get("/api/stats", async (req, res) => {
       waitingUsers: state.waitingQueue.length,
     });
   } catch (error) {
-    console.error("stats error:", error);
+    // console.error("stats error:", error);
     return res.status(500).json({ error: "통계 조회 실패" });
   }
 });
 
 io.on("connection", (socket) => {
+  // console.log(`[ranchat:connect] socket=${shortSocketId(socket.id)}`);
   socket.on("register", async ({ uuid }) => {
     try {
+      // console.log(`[ranchat:register] uuid=${shortUuid(uuid)} socket=${shortSocketId(socket.id)}`);
       if (!uuid || typeof uuid !== "string") {
         socket.emit("error_message", { message: "유효한 UUID가 필요합니다." });
         return;
@@ -437,14 +493,20 @@ io.on("connection", (socket) => {
       enqueueForMatch(socket, uuid);
       await tryMatchUsers();
     } catch (error) {
-      console.error("register error:", error);
+      // console.error("[ranchat:register] error:", error);
       socket.emit("error_message", { message: "등록 중 오류가 발생했습니다." });
     }
   });
 
   socket.on("find_new_partner", async () => {
     const uuid = state.socketUuid.get(socket.id);
-    if (!uuid) return;
+    // console.log(
+    //   `[ranchat:find_new] uuid=${shortUuid(uuid)} socket=${shortSocketId(socket.id)} inRoom=${state.socketRoom.has(socket.id)}`
+    // );
+    if (!uuid) {
+      // console.log("[ranchat:find_new] SKIP no uuid on socket");
+      return;
+    }
     if (state.socketRoom.has(socket.id)) {
       await endChatForSocket(socket, "상대방이 새 매칭을 요청했습니다.");
     } else {
@@ -471,6 +533,10 @@ io.on("connection", (socket) => {
       const { text = "", type = "text", mediaUrl = null, mediaPublicId = null } = payload || {};
       const trimmed = typeof text === "string" ? text.trim() : "";
       if (type === "text" && !trimmed) return;
+      if (type === "video") {
+        socket.emit("error_message", { message: "동영상 전송은 현재 지원하지 않습니다." });
+        return;
+      }
 
       const message = {
         roomId,
@@ -486,7 +552,7 @@ io.on("connection", (socket) => {
       io.to(roomId).emit("room_message", message);
       await saveMessage(message);
     } catch (error) {
-      console.error("chat_message error:", error);
+      // console.error("chat_message error:", error);
       socket.emit("error_message", { message: "메시지 전송 중 오류가 발생했습니다." });
     }
   });
@@ -497,7 +563,9 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", async () => {
     const uuid = state.socketUuid.get(socket.id);
+    // console.log(`[ranchat:disconnect] uuid=${shortUuid(uuid)} socket=${shortSocketId(socket.id)}`);
     removeFromQueueBySocketId(socket.id);
+    logQueue("after disconnect removeFromQueue");
 
     if (state.socketRoom.has(socket.id)) {
       await endChatForSocket(socket, "상대방 연결이 종료되었습니다.");
@@ -519,5 +587,5 @@ cron.schedule("0 */3 * * *", async () => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`ranchat backend listening on http://localhost:${PORT}`);
+  // console.log(`ranchat backend listening on http://localhost:${PORT}`);
 });

@@ -385,6 +385,70 @@
         pointer-events: none;
         opacity: 0.55;
       }
+      .support-strip {
+        flex-shrink: 0;
+        border-radius: 10px;
+        border: 1px solid var(--accent-dim);
+        background: var(--accent-dim);
+        font-size: 0.78rem;
+      }
+      .support-strip-summary {
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .support-strip-summary::-webkit-details-marker {
+        display: none;
+      }
+      .support-strip-label {
+        flex-shrink: 0;
+        font-weight: 700;
+        color: var(--accent);
+        font-size: 0.76rem;
+      }
+      .support-strip-account {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .support-strip-more {
+        flex-shrink: 0;
+        font-size: 0.7rem;
+        color: var(--muted);
+      }
+      .btn-support-copy {
+        flex-shrink: 0;
+        min-height: 30px;
+        padding: 0 10px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--accent);
+        font-size: 0.72rem;
+        font-weight: 600;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .btn-support-copy:active {
+        opacity: 0.85;
+      }
+      .support-strip-detail {
+        margin: 0;
+        padding: 0 10px 8px;
+        color: var(--muted);
+        font-size: 0.74rem;
+        line-height: 1.4;
+      }
       .boot-overlay {
         position: fixed;
         inset: 0;
@@ -464,6 +528,18 @@
         <span id="statusPill" class="status-pill">연결 중…</span>
       </div>
 
+      <details class="support-strip" id="supportStrip">
+        <summary class="support-strip-summary" aria-label="서버 운영 후원">
+          <span class="support-strip-label">서버 후원</span>
+          <span class="support-strip-account" id="supportAccount">토스 1000-9046-8602</span>
+          <button type="button" id="supportCopyBtn" class="btn-support-copy">복사</button>
+          <span class="support-strip-more" aria-hidden="true">안내</span>
+        </summary>
+        <p class="support-strip-detail">
+          서버·DB·이미지 저장 운영비가 필요합니다. 마음에 드셨다면 금액을 자유롭게 후원해 주세요. 감사합니다.
+        </p>
+      </details>
+
       <button type="button" id="nextBtn" class="btn-next">다른 사람과 연결</button>
 
       <div id="log" role="log" aria-live="polite" aria-relevant="additions"></div>
@@ -473,8 +549,9 @@
         <p id="fileHint" class="file-hint" aria-live="polite"></p>
         <div class="composer-actions">
           <label class="btn-file" id="fileLabel" for="fileInput">
-            사진·영상
-            <input id="fileInput" type="file" accept="image/*,video/*,.mp4" />
+            사진
+            <input id="fileInput" type="file" accept="image/*" />
+            <!-- MVP: 동영상 비활성 accept="image/*,video/*,.mp4" -->
           </label>
           <button type="button" id="sendBtn" class="btn-send">보내기</button>
         </div>
@@ -502,10 +579,10 @@
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
     <script>
       const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-      const MAX_VIDEO_BYTES = 10 * 1024 * 1024;
+      // const MAX_VIDEO_BYTES = 10 * 1024 * 1024; // MVP: 동영상 비활성
       const UUID_KEY = "ranchat_uuid";
-      const API_BASE = "https://ranchat-dc8i.onrender.com";
-      // const API_BASE = "http://localhost:3000";
+      // const API_BASE = "https://ranchat-dc8i.onrender.com";
+      const API_BASE = "http://localhost:3000";
 
       let socket = null;
       let currentRoomId = null;
@@ -516,6 +593,13 @@
       let hasRegistered = false;
       let pendingFile = null;
       let mediaUploadInProgress = false;
+
+      function dbg() {}
+
+      function shortId(value) {
+        if (!value) return "?";
+        return String(value).slice(0, 8);
+      }
 
       const nextBtn = document.getElementById("nextBtn");
       const sendBtn = document.getElementById("sendBtn");
@@ -553,37 +637,57 @@
         bootRetryBtnEl.classList.toggle("is-visible", Boolean(canRetry));
       }
 
-      /** 용량 줄여 업로드 시간 단축 (큰 사진 위주) */
+      /** 채팅용: 1280px, WebP 0.78 (실패 시 JPEG fallback) */
       async function compressImageForUpload(file) {
         if (!file.type.startsWith("image/")) return file;
         if (file.size < 400 * 1024) return file;
+
+        const MAX_EDGE = 1280;
+        const WEBP_QUALITY = 0.78;
+        const JPEG_QUALITY = 0.78;
+
         try {
           const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-          const maxEdge = 1920;
           const w = bmp.width;
           const h = bmp.height;
-          const scale = Math.min(maxEdge / w, maxEdge / h, 1);
+          const scale = Math.min(MAX_EDGE / w, MAX_EDGE / h, 1);
           const nw = Math.max(1, Math.round(w * scale));
           const nh = Math.max(1, Math.round(h * scale));
-          if (nw === w && nh === h && file.size < 900 * 1024) {
+          const needsResize = nw !== w || nh !== h;
+          if (!needsResize && file.size < 700 * 1024) {
             bmp.close();
             return file;
           }
+
           const canvas = document.createElement("canvas");
           canvas.width = nw;
           canvas.height = nh;
           const ctx = canvas.getContext("2d", { alpha: false });
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = "high";
-          // JPEG은 투명 없음 → 투명/가장자리가 검은 띠로 보이는 현상 방지
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, nw, nh);
           ctx.drawImage(bmp, 0, 0, nw, nh);
           bmp.close();
-          const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
-          if (!blob || blob.size >= file.size * 0.92) return file;
+
           const base = file.name.replace(/\.[^.]+$/, "") || "photo";
-          return new File([blob], `${base}.jpg`, { type: "image/jpeg" });
+          const minGain = file.size * 0.92;
+
+          const webpBlob = await new Promise((resolve) =>
+            canvas.toBlob(resolve, "image/webp", WEBP_QUALITY)
+          );
+          if (webpBlob && webpBlob.size < minGain) {
+            return new File([webpBlob], `${base}.webp`, { type: "image/webp" });
+          }
+
+          const jpegBlob = await new Promise((resolve) =>
+            canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY)
+          );
+          if (jpegBlob && jpegBlob.size < minGain) {
+            return new File([jpegBlob], `${base}.jpg`, { type: "image/jpeg" });
+          }
+
+          return file;
         } catch {
           return file;
         }
@@ -736,16 +840,19 @@
         );
 
         socket.on("connect", () => {
+          dbg("connect", { uuid: shortId(myUuid), socketId: shortId(socket.id), hasRegistered, currentRoomId });
           hasRegistered = false;
           setStatus("준비됨", false);
           setBootState({ show: false });
         });
 
-        socket.on("queued", () => {
+        socket.on("queued", (payload) => {
+          dbg("queued", payload);
           setStatus("매칭 중…", false);
         });
 
         socket.on("matched", (payload) => {
+          dbg("matched", payload);
           clearLog();
           setRoom(payload.roomId);
           partnerUuid = payload.partnerUuid;
@@ -765,7 +872,7 @@
             );
             return;
           }
-          if (payload.type === "video" && payload.mediaUrl) {
+          if (false && payload.type === "video" && payload.mediaUrl) {
             const src = escapeAttr(cloudinaryDeliveryUrl(payload.mediaUrl));
             log(
               `${base}<br /><div class="chat-video-wrap"><video controls src="${src}"></video><button type="button" class="media-expand-btn" data-kind="video" data-url="${src}">크게 보기</button></div>`,
@@ -777,6 +884,7 @@
         });
 
         socket.on("partner_left", (payload) => {
+          dbg("partner_left", payload);
           clearLog();
           setRoom(null);
           partnerUuid = null;
@@ -784,7 +892,8 @@
           log(escapeHtml(payload.reason || "상대가 나갔습니다."), "system");
         });
 
-        socket.on("chat_ended", () => {
+        socket.on("chat_ended", (payload) => {
+          dbg("chat_ended", payload);
           clearLog();
           setRoom(null);
           partnerUuid = null;
@@ -792,10 +901,12 @@
         });
 
         socket.on("error_message", (payload) => {
+          dbg("error_message", payload);
           log(escapeHtml(payload.message || "오류가 발생했습니다."), "warn");
         });
 
-        socket.on("disconnect", () => {
+        socket.on("disconnect", (reason) => {
+          dbg("disconnect", { reason, currentRoomId, hasRegistered });
           hasRegistered = false;
           setStatus("연결 끊김", false);
           setRoom(null);
@@ -889,7 +1000,7 @@
       async function sendOrUpload() {
         if (pendingFile) {
           if (mediaUploadInProgress) {
-            log("이전 사진·영상 전송이 끝날 때까지 기다려 주세요.", "warn");
+            log("이전 사진 전송이 끝날 때까지 기다려 주세요.", "warn");
             return;
           }
           const file = pendingFile;
@@ -906,23 +1017,21 @@
         if (!file) return { ok: false, reason: "파일을 선택해 주세요." };
 
         const isImage = file.type.startsWith("image/");
-        const isVideo =
-          file.type.startsWith("video/") ||
-          file.type === "application/mp4" ||
-          file.name.toLowerCase().endsWith(".mp4");
+        // MVP: 동영상 비활성
+        // const isVideo =
+        //   file.type.startsWith("video/") ||
+        //   file.type === "application/mp4" ||
+        //   file.name.toLowerCase().endsWith(".mp4");
 
-        if (!isImage && !isVideo) {
-          return { ok: false, reason: "이미지 또는 영상만 보낼 수 있습니다." };
+        if (!isImage) {
+          return { ok: false, reason: "이미지만 보낼 수 있습니다." };
         }
 
-        if (isImage && file.size > MAX_IMAGE_BYTES) {
+        if (file.size > MAX_IMAGE_BYTES) {
           return { ok: false, reason: "이미지는 5MB 이하만 가능합니다." };
         }
-        if (isVideo && file.size > MAX_VIDEO_BYTES) {
-          return { ok: false, reason: "영상은 10MB 이하만 가능합니다." };
-        }
 
-        return { ok: true, kind: isImage ? "image" : "video" };
+        return { ok: true, kind: "image" };
       }
 
       async function uploadToCloudinary(file, kind) {
@@ -978,21 +1087,16 @@
         }
 
         mediaUploadInProgress = true;
-        let uploadFile = file;
-        if (valid.kind === "image") {
-          setUploadBar(true, "사진 최적화 중…");
-          uploadFile = await compressImageForUpload(file);
-          setUploadBar(true, "사진 업로드 중…");
-        } else {
-          setUploadBar(true, "동영상 업로드 중…");
-        }
+        setUploadBar(true, "사진 최적화 중…");
+        const uploadFile = await compressImageForUpload(file);
+        setUploadBar(true, "사진 업로드 중…");
         try {
-          const uploaded = await uploadToCloudinary(uploadFile, valid.kind);
-          await saveUploadMeta(uploaded, valid.kind, uploadFile);
+          const uploaded = await uploadToCloudinary(uploadFile, "image");
+          await saveUploadMeta(uploaded, "image", uploadFile);
 
           socket.emit("chat_message", {
-            type: valid.kind,
-            text: valid.kind === "image" ? "사진" : "영상",
+            type: "image",
+            text: "사진",
             mediaUrl: uploaded.secure_url,
             mediaPublicId: uploaded.public_id,
           });
@@ -1013,11 +1117,13 @@
           return;
         }
         if (!hasRegistered) {
+          dbg("emit register", { uuid: shortId(myUuid), currentRoomId, hasRegistered });
           socket.emit("register", { uuid: myUuid });
           hasRegistered = true;
           setStatus("매칭 중…", false);
           return;
         }
+        dbg("emit find_new_partner", { uuid: shortId(myUuid), currentRoomId, hasRegistered });
         socket.emit("find_new_partner");
       });
       messageInput.addEventListener("keydown", (event) => {
@@ -1035,6 +1141,38 @@
 
       bootRetryBtnEl.addEventListener("click", () => {
         bootApp();
+      });
+
+      const SUPPORT_ACCOUNT = "1000-9046-8602";
+      const supportCopyBtn = document.getElementById("supportCopyBtn");
+      supportCopyBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const done = () => {
+          supportCopyBtn.textContent = "됨";
+          setTimeout(() => {
+            supportCopyBtn.textContent = "복사";
+          }, 2000);
+        };
+        try {
+          await navigator.clipboard.writeText(SUPPORT_ACCOUNT);
+          done();
+        } catch {
+          const ta = document.createElement("textarea");
+          ta.value = SUPPORT_ACCOUNT;
+          ta.setAttribute("readonly", "");
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            document.execCommand("copy");
+            done();
+          } catch {
+            log("복사에 실패했습니다. 토스 1000-9046-8602 를 직접 입력해 주세요.", "warn");
+          }
+          document.body.removeChild(ta);
+        }
       });
 
       bootApp();
